@@ -98,10 +98,3 @@ go test -cover ./...             # com cobertura
 falso que o teste controla (dá para simular erro de banco). Na suite usamos o
 `MemoryRepository`, um fake que funciona de verdade, para ver o resultado de
 várias operações em sequência.
-
-## Sugestão de ordem para explicar
-
-1. O problema que o testify resolve (`t.Errorf` × `assert.Equal`).
-2. `expense_test.go`: assert, require e as funções de verificação.
-3. `service_mock_test.go`: por que mockar e como (programar → executar → verificar).
-4. `service_suite_test.go`: organizar testes com ciclo de vida.
