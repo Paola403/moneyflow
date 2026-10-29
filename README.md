@@ -81,7 +81,7 @@ Posteriormente, uma despesa de R$ 10,10 é registrada, utilizando exatamente o s
 O projeto está organizado da seguinte maneira:
 
 ```text
-moneyflow-simples/
+moneyflow/
 │
 ├── cmd/
 │   └── demo/
