@@ -1,4 +1,4 @@
-# MoneyFlow (versão simples) — demonstração do testify
+# MoneyFlow — Demonstração do Testify
 
 Projeto pequeno só para mostrar a biblioteca **testify**. Controla despesas
 dentro de um orçamento: sem banco de dados, sem HTTP.
