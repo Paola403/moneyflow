@@ -1,8 +1,7 @@
 package moneyflow_test
 
-// CONCEITO 2: testify/mock. O Service é testado com repositório e notificador
-// FALSOS, que o teste controla: dá para simular erro de banco, conferir com
-// quais argumentos algo foi chamado e provar que algo NÃO foi chamado.
+// Testes do Service com dependências simuladas por testify/mock.
+// Os mocks permitem controlar retornos e verificar as interações entre componentes.
 
 import (
 	"context"
@@ -18,7 +17,7 @@ import (
 	"moneyflow"
 )
 
-// errDB simula uma falha de infraestrutura (conexão perdida, disco cheio...).
+// Erro utilizado para simular uma falha na camada de persistência.
 var errDB = errors.New("db: connection refused")
 
 type fixture struct {
@@ -27,9 +26,8 @@ type fixture struct {
 	notifier *MockNotifier
 }
 
-// newFixture monta o service com mocks. O t.Cleanup roda AssertExpectations
-// ao fim do teste: toda expectativa programada com .On(...) DEVE ter sido
-// usada, senão o teste falha (evita mocks "esquecidos").
+// newFixture configura o Service com mocks e valida as expectativas ao final
+// do teste, garantindo que as interações configuradas foram executadas.
 func newFixture(t *testing.T, limit int64) *fixture {
 	t.Helper()
 	repo, notifier := new(MockRepository), new(MockNotifier)
@@ -40,28 +38,28 @@ func newFixture(t *testing.T, limit int64) *fixture {
 	return &fixture{svc: moneyflow.NewService(repo, notifier, limit), repo: repo, notifier: notifier}
 }
 
-// Anatomia de um teste com mock: PROGRAMAR (On/Return) -> EXECUTAR -> VERIFICAR.
+// Fluxo do teste: configurar as respostas esperadas, executar a operação e validar o resultado.
 func TestCreateExpense_Success(t *testing.T) {
 	f := newFixture(t, 10_000)
 	ctx := context.Background()
 	history := []moneyflow.Expense{{ID: "old", Description: "antiga", AmountCents: 3_000}}
 	want := moneyflow.Expense{ID: "exp-1", Description: "Almoço", AmountCents: 1_990, Category: "alimentacao"}
 
-	// PROGRAMAR. Argumento exato: verifica O QUE foi enviado ao repositório.
+	// Configura as chamadas esperadas e os respectivos retornos.
 	f.repo.On("List", ctx).Return(history, nil).Once()
 	f.repo.On("Save", ctx, want).Return(nil).Once()
 
-	// EXECUTAR
+	// Executa a regra de negócio sob teste.
 	got, err := f.svc.CreateExpense(ctx, "Almoço", 1_990, "alimentacao")
 
-	// VERIFICAR
+	// Confere o resultado e as interações realizadas.
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 	f.repo.AssertNumberOfCalls(t, "Save", 1)
 	f.repo.AssertCalled(t, "Save", ctx, want)
 }
 
-// mock.Anything ignora o argumento; mock.MatchedBy inspeciona com uma função.
+// Usa um matcher para validar propriedades específicas do objeto enviado ao repositório.
 func TestCreateExpense_NormalizesInputBeforeSaving(t *testing.T) {
 	f := newFixture(t, 10_000)
 	f.repo.On("List", mock.Anything).Return(nil, nil)
@@ -74,7 +72,7 @@ func TestCreateExpense_NormalizesInputBeforeSaving(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// AssertNotCalled: prova que dados inválidos nunca chegam ao repositório.
+// Garante que entradas inválidas são rejeitadas antes de acessar a persistência.
 func TestCreateExpense_InvalidInput_DoesNotTouchRepository(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -89,7 +87,7 @@ func TestCreateExpense_InvalidInput_DoesNotTouchRepository(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newFixture(t, 10_000) // nada programado: qualquer chamada causaria panic
+			f := newFixture(t, 10_000) // sem expectativas configuradas, chamadas inesperadas são reportadas pelo mock
 
 			got, err := f.svc.CreateExpense(context.Background(), tc.description, tc.amount, "geral")
 
@@ -102,7 +100,7 @@ func TestCreateExpense_InvalidInput_DoesNotTouchRepository(t *testing.T) {
 	}
 }
 
-// Orçamento estourado: erro tipado (errors.As) e Save nunca chamado.
+// Valida a rejeição por orçamento excedido e confirma que nenhuma gravação foi realizada.
 func TestCreateExpense_BudgetExceeded(t *testing.T) {
 	f := newFixture(t, 10_000)
 	f.repo.On("List", mock.Anything).Return([]moneyflow.Expense{{AmountCents: 9_500}}, nil)
@@ -113,13 +111,13 @@ func TestCreateExpense_BudgetExceeded(t *testing.T) {
 	assert.ErrorIs(t, err, moneyflow.ErrBudgetExceeded)
 
 	var be *moneyflow.BudgetExceededError
-	require.ErrorAs(t, err, &be) // se `be` ficasse nil, a linha abaixo daria panic
+	require.ErrorAs(t, err, &be) // garante que be foi preenchido antes da comparação
 	assert.Equal(t, &moneyflow.BudgetExceededError{RequestedCents: 501, AvailableCents: 500}, be)
 
 	f.repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything)
 }
 
-// Return(errDB) simula falhas. O %w do service permite ErrorIs atravessar o embrulho.
+// Simula falhas de consulta e gravação, verificando a propagação do erro original.
 func TestCreateExpense_RepositoryFailures(t *testing.T) {
 	t.Run("falha ao consultar", func(t *testing.T) {
 		f := newFixture(t, 10_000)
@@ -143,7 +141,7 @@ func TestCreateExpense_RepositoryFailures(t *testing.T) {
 	})
 }
 
-// .Times(n) exige exatamente n chamadas; AnythingOfType confere só o tipo.
+// Verifica a geração sequencial de identificadores e a quantidade de chamadas ao repositório.
 func TestCreateExpense_TwoExpenses_GetSequentialIDs(t *testing.T) {
 	f := newFixture(t, 10_000)
 	f.repo.On("List", mock.Anything).Return(nil, nil).Times(2)
@@ -158,8 +156,8 @@ func TestCreateExpense_TwoExpenses_GetSequentialIDs(t *testing.T) {
 	assert.Equal(t, "exp-2", second.ID)
 }
 
-// Código assíncrono: .Run() executa algo quando o mock é chamado e
-// assert.Eventually espera a condição ficar verdadeira (com tempo limite).
+// O callback Run registra a chamada do notificador. Eventually aguarda a execução
+// da goroutine dentro de um intervalo definido.
 func TestCreateExpense_NotifiesWhenBudgetIsExhausted(t *testing.T) {
 	f := newFixture(t, 10_000)
 	f.repo.On("List", mock.Anything).Return([]moneyflow.Expense{{AmountCents: 9_000}}, nil)
@@ -171,15 +169,15 @@ func TestCreateExpense_NotifiesWhenBudgetIsExhausted(t *testing.T) {
 		Return(nil).
 		Once()
 
-	_, err := f.svc.CreateExpense(context.Background(), "Aluguel", 1_000, "casa") // gasta o último centavo
+	_, err := f.svc.CreateExpense(context.Background(), "Aluguel", 1_000, "casa") // consome o saldo restante
 
 	require.NoError(t, err)
 	assert.Eventually(t, func() bool { return notified.Load() == 1 },
 		time.Second, 10*time.Millisecond, "o aviso deveria ter sido enviado")
 }
 
-// .Maybe() permite 0 ou mais chamadas; assert.Never garante que a condição
-// NÃO se torna verdadeira durante o intervalo (o oposto de Eventually).
+// Maybe torna a chamada opcional. Never verifica que a notificação não ocorre
+// enquanto ainda existe saldo disponível.
 func TestCreateExpense_DoesNotNotifyWhileThereIsBalance(t *testing.T) {
 	f := newFixture(t, 10_000)
 	f.repo.On("List", mock.Anything).Return(nil, nil)

@@ -8,8 +8,8 @@ import (
 	"moneyflow"
 )
 
-// Os mocks apenas REGISTRAM a chamada (m.Called) e devolvem o que o teste
-// programou com .On(...).Return(...). Nenhuma regra de negócio mora aqui.
+// Os mocks registram as chamadas recebidas e retornam os valores configurados
+// pelo teste. Eles isolam o Service das implementações concretas.
 
 type MockRepository struct{ mock.Mock }
 
@@ -20,7 +20,7 @@ func (m *MockRepository) Save(ctx context.Context, e moneyflow.Expense) error {
 
 func (m *MockRepository) List(ctx context.Context) ([]moneyflow.Expense, error) {
 	args := m.Called(ctx)
-	list, _ := args.Get(0).([]moneyflow.Expense) // comma-ok: Return(nil, err) não causa panic
+	list, _ := args.Get(0).([]moneyflow.Expense) // evita panic quando o retorno configurado é nil
 	return list, args.Error(1)
 }
 
@@ -30,7 +30,7 @@ func (m *MockNotifier) Notify(message string) error {
 	return m.Called(message).Error(0)
 }
 
-// Se a interface mudar e o mock ficar para trás, o projeto deixa de compilar.
+// Verifica em tempo de compilação se os mocks implementam as interfaces esperadas.
 var (
 	_ moneyflow.Repository = (*MockRepository)(nil)
 	_ moneyflow.Notifier   = (*MockNotifier)(nil)

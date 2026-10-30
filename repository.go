@@ -6,15 +6,15 @@ import (
 	"sync"
 )
 
-// Repository é o contrato de armazenamento. O Service depende só desta
-// interface, então nos testes podemos trocá-la por um MOCK.
+// Repository define as operações de persistência utilizadas pelo Service.
+// A interface permite substituir a implementação real por doubles nos testes.
 type Repository interface {
 	Save(ctx context.Context, e Expense) error
 	List(ctx context.Context) ([]Expense, error)
 }
 
-// MemoryRepository guarda as despesas em memória. Em testes é um "fake":
-// uma implementação simplificada, mas que funciona de verdade.
+// MemoryRepository implementa Repository usando armazenamento em memória.
+// Nos testes, funciona como fake: mantém estado e executa as operações solicitadas.
 type MemoryRepository struct {
 	mu       sync.Mutex
 	expenses []Expense

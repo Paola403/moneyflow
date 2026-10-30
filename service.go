@@ -6,20 +6,20 @@ import (
 	"sync"
 )
 
-// Notifier avisa o usuário de algo (e-mail, push...). É outra dependência
-// que os testes substituem por um mock.
+// Notifier abstrai o envio de notificações, permitindo trocar o mecanismo
+// de comunicação sem alterar as regras do Service.
 type Notifier interface {
 	Notify(message string) error
 }
 
-// Service aplica as regras de negócio: valida a despesa, confere o orçamento,
-// salva e, se o orçamento acabar, avisa em segundo plano (goroutine).
+// Service coordena a criação de despesas, valida o orçamento e aciona
+// as dependências de persistência e notificação.
 type Service struct {
 	repo     Repository
-	notifier Notifier // opcional: nil = sem avisos
-	limit    int64    // orçamento total, em centavos
+	notifier Notifier // dependência opcional para envio de notificações
+	limit    int64    // limite total do orçamento, em centavos
 
-	mu     sync.Mutex // torna "conferir saldo + salvar" uma operação só
+	mu     sync.Mutex // sincroniza a consulta de saldo e a gravação da despesa
 	lastID int
 }
 
@@ -27,8 +27,8 @@ func NewService(repo Repository, notifier Notifier, limitCents int64) *Service {
 	return &Service{repo: repo, notifier: notifier, limit: limitCents}
 }
 
-// CreateExpense valida, confere o orçamento e persiste a despesa.
-// Despesa inválida ou acima do saldo NUNCA chega ao Save.
+// CreateExpense valida os dados, verifica o saldo e persiste a despesa.
+// A gravação só ocorre quando todas as regras de negócio são atendidas.
 func (s *Service) CreateExpense(ctx context.Context, description string, amountCents int64, category string) (Expense, error) {
 	expense, err := NewExpense(description, amountCents, category)
 	if err != nil {
@@ -44,7 +44,7 @@ func (s *Service) CreateExpense(ctx context.Context, description string, amountC
 	}
 
 	available := s.limit - spent
-	if expense.AmountCents > available { // igualdade é aceita: gastar tudo pode
+	if expense.AmountCents > available { // permite consumir o saldo exato
 		return Expense{}, &BudgetExceededError{
 			RequestedCents: expense.AmountCents,
 			AvailableCents: available,
@@ -53,17 +53,17 @@ func (s *Service) CreateExpense(ctx context.Context, description string, amountC
 
 	expense.ID = fmt.Sprintf("exp-%d", s.lastID+1)
 	if err := s.repo.Save(ctx, expense); err != nil {
-		return Expense{}, fmt.Errorf("salvar despesa: %w", err) // %w preserva errors.Is
+		return Expense{}, fmt.Errorf("salvar despesa: %w", err) // mantém o erro original acessível via errors.Is
 	}
-	s.lastID++ // só despesas realmente salvas consomem um ID
+	s.lastID++ // atualiza o identificador somente após a gravação
 
 	if s.notifier != nil && spent+expense.AmountCents == s.limit {
-		go s.notifier.Notify("Orçamento esgotado!") // assíncrono; erro de aviso é ignorado
+		go s.notifier.Notify("Orçamento esgotado!") // envia a notificação sem bloquear a operação principal
 	}
 	return expense, nil
 }
 
-// Balance devolve quanto ainda pode ser gasto, em centavos.
+// Balance retorna o valor disponível do orçamento, em centavos.
 func (s *Service) Balance(ctx context.Context) (int64, error) {
 	spent, err := s.spent(ctx)
 	if err != nil {
@@ -72,7 +72,7 @@ func (s *Service) Balance(ctx context.Context) (int64, error) {
 	return s.limit - spent, nil
 }
 
-// UsedPercent devolve a porcentagem do orçamento já gasta (ex.: 33.33).
+// UsedPercent calcula a porcentagem do orçamento que já foi utilizada.
 func (s *Service) UsedPercent(ctx context.Context) (float64, error) {
 	spent, err := s.spent(ctx)
 	if err != nil {

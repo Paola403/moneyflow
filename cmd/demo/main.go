@@ -1,5 +1,5 @@
-// Programa de demonstração: um terminal interativo para usar o MoneyFlow
-// "na prática" (os testes provam que funciona; aqui dá para ver funcionando).
+// Programa de demonstração que disponibiliza as operações do MoneyFlow
+// por meio de uma interface simples de terminal.
 package main
 
 import (
@@ -15,8 +15,7 @@ import (
 	"moneyflow"
 )
 
-// consoleNotifier implementa moneyflow.Notifier imprimindo o aviso na tela.
-// Nos testes, o mesmo papel é feito pelo MockNotifier.
+// consoleNotifier implementa Notifier exibindo as mensagens diretamente no terminal.
 type consoleNotifier struct{}
 
 func (consoleNotifier) Notify(message string) error {

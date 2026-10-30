@@ -1,16 +1,9 @@
 package moneyflow_test
 
-// CONCEITO 3: testify/suite. Agrupa testes em uma struct, com ciclo de vida
-// (Setup/TearDown) e com os asserts disponíveis direto em `s`.
-//
-// Ordem de execução:
-//   SetupSuite            (1x, antes de tudo)
-//     SetupTest           (antes de CADA TestXxx)
-//       SetupSubTest      (antes de cada s.Run)
-//         ... teste ...
-//       TearDownSubTest
-//     TearDownTest        (depois de CADA TestXxx)
-//   TearDownSuite         (1x, no fim)
+// Testes organizados com testify/suite. A estrutura compartilha dependências
+// e disponibiliza métodos de preparação e finalização ao longo do ciclo de vida.
+// SetupSuite/TearDownSuite executam uma vez; SetupTest/TearDownTest executam
+// para cada teste; SetupSubTest prepara cada cenário executado com s.Run.
 
 import (
 	"context"
@@ -26,10 +19,10 @@ import (
 
 const suiteLimit = 10_000 // R$ 100,00
 
-// Aqui o repositório é o FAKE em memória (resultado de várias operações
-// encadeadas); só o notificador é mock.
+// O repositório em memória atua como fake; o notificador permanece mockado
+// para permitir validar o envio assíncrono de notificações.
 type ServiceSuite struct {
-	suite.Suite // embute os asserts: s.Equal, s.NoError, s.ErrorIs...
+	suite.Suite   // embute os asserts: s.Equal, s.NoError, s.ErrorIs...
 	ctx           context.Context
 	repo          *moneyflow.MemoryRepository
 	notifier      *MockNotifier
@@ -46,7 +39,7 @@ func (s *ServiceSuite) TearDownSuite() {
 	s.T().Log("TearDownSuite: roda uma vez, depois de todos os testes")
 }
 
-// Estado novo antes de cada teste e de cada subteste: nada vaza entre eles.
+// Reinicializa as dependências para manter os cenários isolados entre si.
 func (s *ServiceSuite) SetupTest()    { s.reset() }
 func (s *ServiceSuite) SetupSubTest() { s.reset() }
 
@@ -66,7 +59,7 @@ func (s *ServiceSuite) reset() {
 	s.svc = moneyflow.NewService(s.repo, s.notifier, suiteLimit)
 }
 
-// s.Require() = versão que PARA o teste; s.Equal etc. = versão que continua.
+// Require interrompe o teste em falhas essenciais; os demais asserts permitem continuar.
 func (s *ServiceSuite) TestCreateExpense_UpdatesBalanceAndHistory() {
 	_, err := s.svc.CreateExpense(s.ctx, "Almoço", 1_990, "alimentacao")
 	s.Require().NoError(err)
@@ -95,7 +88,7 @@ func (s *ServiceSuite) TestRejectedExpense_DoesNotChangeBalanceOrHistory() {
 	s.Empty(history)
 }
 
-// InDelta: compara números decimais com tolerância (nunca use Equal com float).
+// Compara o percentual com uma tolerância para considerar a precisão de float.
 func (s *ServiceSuite) TestUsedPercent() {
 	_, err := s.svc.CreateExpense(s.ctx, "Mercado", 3_333, "alimentacao")
 	s.Require().NoError(err)
@@ -106,7 +99,7 @@ func (s *ServiceSuite) TestUsedPercent() {
 	s.InDelta(33.33, percent, 0.001)
 }
 
-// Gastar exatamente o saldo é aceito e dispara o aviso (assíncrono).
+// Confirma que consumir todo o saldo é permitido e aciona a notificação.
 func (s *ServiceSuite) TestExpenseEqualToBalance_IsAcceptedAndNotifies() {
 	_, err := s.svc.CreateExpense(s.ctx, "Tudo", suiteLimit, "geral")
 	s.Require().NoError(err)
@@ -119,7 +112,7 @@ func (s *ServiceSuite) TestExpenseEqualToBalance_IsAcceptedAndNotifies() {
 		time.Second, 10*time.Millisecond, "o aviso deveria ter sido enviado")
 }
 
-// Teste de tabela com s.Run: o SetupSubTest zera o estado a cada caso.
+// Executa diferentes entradas isoladamente; SetupSubTest prepara um estado novo para cada caso.
 func (s *ServiceSuite) TestCreateExpense_Cases() {
 	cases := []struct {
 		name        string
@@ -147,7 +140,7 @@ func (s *ServiceSuite) TestCreateExpense_Cases() {
 	}
 }
 
-// Ponto de entrada: o `go test` só enxerga funções Test*(t *testing.T).
+// Integra a suite ao runner padrão de testes do Go.
 func TestServiceSuite(t *testing.T) {
 	suite.Run(t, new(ServiceSuite))
 }
